@@ -47,14 +47,13 @@ media = true                # MPRIS transport wherever something is playing
 claude = true               # Claude Code read-out when a session is focused
 chatgpt = true              # ChatGPT/Codex telemetry tiles
 browser_tabs = true         # live favicon tab strip in Firefox-family browsers
-football = true             # Premier League page in the mode cycle
-goal_celebrations = true    # full-bar goal scene when a PL goal is scored
+football = true             # NFL page in the mode cycle
+goal_celebrations = true    # full-bar scene when your team's game gets a score
 
-# Built-in Premier League live centre: live scores, table, fixtures and your
-# club, refreshed off the render path. Leave `team` empty to follow the club
-# picked in the Football plugin (~/.config/omarchy/premier-league.json).
+# Built-in NFL live centre: live scores, table, fixtures and your team,
+# refreshed off the render path. Leave `team` empty to follow no team.
 [football]
-team = ""                   # club abbreviation, e.g. "LIV", "ARS", "MNC"
+team = ""                   # team abbreviation, e.g. "KC", "BUF", "SF"
 live_refresh = 25           # seconds between polls while a match is on
 idle_refresh = 300          # seconds otherwise
 

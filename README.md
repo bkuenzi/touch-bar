@@ -35,13 +35,11 @@ full-height, themed interface that follows the focused app.
   fans, disk and uptime, refreshed while it is open.
 - **Themed clock and battery tiles** (optional) that follow the Omarchy theme
   instead of tiny-dfr's plain white text.
-- **Built-in Premier League centre.** A football page with live scores, the
-  table, upcoming fixtures and your club's form, and a full-bar goal
-  celebration (ball-to-net flight, scorer, clock and score) whenever a goal
-  goes in. No companion app needed; if the
-  [Football](https://github.com/niraj-envision/football) plugin is installed
-  the two share one cache and one goal queue, and its terminal scorecard
-  turns the bar into the live centre while it is focused.
+- **Built-in NFL centre.** A football page with live scores, the
+  table, upcoming fixtures and your team's form, and a full-bar scoring
+  celebration (TD/FG/safety, scorer, clock and score) whenever your team's
+  live game gets a scoring play. No companion app needed - talks straight
+  to the public ESPN feed.
 - **Desktop settings.** `omarchy-touchbar-settings` (in the app launcher as
   "Touch Bar") edits the look, feature switches, per-app profiles and their
   buttons, and the football options, with a live preview of every page.
@@ -139,30 +137,31 @@ views; swipe left or right to page through longer lists:
 
 | View | Shows |
 |---|---|
-| live | every match in progress with clock and score; otherwise the latest results and next kick-offs |
-| table | the 20 clubs with points and goal difference, Champions League and relegation places coloured, your club highlighted |
-| fixtures | upcoming matches with local kick-off time and a countdown |
-| club | league position ring, points, W-D-L, goals, last five results as form dots, next match and last result |
+| live | every game in progress with clock and score; otherwise the latest results and next kickoffs |
+| table | all 32 teams merged from both conferences, ranked by win percentage, your team highlighted |
+| fixtures | upcoming games with local kickoff time and a countdown |
+| team | league rank ring, win %, W-D-L, points for/against, last five results as form dots, next game and last result |
 
-Every match tile carries both clubs' colours on its flanks. Data comes from
+Every game tile carries both teams' colours on its flanks. Data comes from
 the public ESPN scoreboard and standings feeds (no key), polled every 25 s
-while a match is on, once a minute around kick-off or while the page is
-showing, and every five minutes otherwise. Pick your club under
-`[football]` in the config or in the settings app; with nothing set, the
-Football plugin's choice is used.
+while a game is on, once a minute around kickoff or while the page is
+showing, and every five minutes otherwise. Pick your team under
+`[football]` in the config or in the settings app.
 
-### Goal celebrations
+### Scoring celebrations
 
-When a new Premier League goal is observed, the bar temporarily uses all 13
-stable cells as one continuous stadium scene. The ball flies into the net,
-then the scorer and exact score remain visible for a total of five seconds.
+When a new scoring play (touchdown, field goal, safety or two-point
+conversion) is observed in a live game, the bar temporarily uses all 13
+stable cells as one continuous scene. The label, scorer and exact score
+remain visible for a total of five seconds. To limit load on ESPN's
+unofficial API, only your followed team's live game plus up to three other
+live games are checked each cycle - not every game on a full Sunday slate.
 
 Detection is built in and baselines silently on first run, so a restart never
-replays an afternoon of goals. Goals are also accepted from the Football
-plugin's inbox; both sources use the same goal ids and one acknowledgement
-file, so a goal is shown exactly once whichever noticed it first. Delivery is
-serial and durable: goals that arrive together are shown FIFO without
-overlap, and an interrupted alert is replayed rather than lost.
+replays an afternoon of scoring plays. Every scoring play has a stable id and
+one acknowledgement file, so it is shown exactly once. Delivery is serial and
+durable: plays that arrive together are shown FIFO without overlap, and an
+interrupted alert is replayed rather than lost.
 
 ## Settings app
 
@@ -174,7 +173,7 @@ omarchy-touchbar-settings apps     # open straight to a tab
 Tabs: **Bar** (fonts, radius, animation, brightness, clock, battery, layout),
 **Features** (dictation, media, Claude, ChatGPT, browser tabs, football,
 celebrations), **Apps** (enable or disable each profile, edit its match
-pattern, icon and shortcut buttons), **Football** (club, refresh rates) and
+pattern, icon and shortcut buttons), **Football** (team, refresh rates) and
 **Preview** (render any page as the panel draws it). Changes are written back
 into `~/.config/omarchy/touchbar.toml` in place, comments included, and the
 daemon repaints on save.

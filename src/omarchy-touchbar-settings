@@ -3,7 +3,7 @@
 
 Everything the daemon reads from ~/.config/omarchy/touchbar.toml can be
 changed here: bar look, feature switches, per-app profiles and their
-buttons, and the built-in Premier League centre. Edits are written back
+buttons, and the built-in NFL centre. Edits are written back
 in place - comments and ordering in the file survive - and the daemon
 repaints the moment the file is saved.
 
@@ -21,7 +21,6 @@ import tomllib
 HOME = os.path.expanduser("~")
 USER_CONFIG = os.path.join(HOME, ".config", "omarchy", "touchbar.toml")
 DIST_CONFIG = USER_CONFIG + ".dist"
-PL_CONFIG = os.path.join(HOME, ".config", "omarchy", "premier-league.json")
 PL_STANDINGS = os.path.join(HOME, ".cache", "omarchy-pl", "standings.json")
 DAEMON = os.path.join(HOME, ".local", "bin", "omarchy-touchbar")
 PREVIEW_DIR = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp",
@@ -33,7 +32,7 @@ FEATURES = (
     ("claude", "Claude Code read-out", "Live session telemetry when a Claude session is focused"),
     ("chatgpt", "ChatGPT telemetry", "Codex task state, context and rate limits"),
     ("browser_tabs", "Live browser tabs", "Favicon tab strip for Zen and Firefox"),
-    ("football", "Premier League page", "Live scores, table, fixtures and your club"),
+    ("football", "Football page", "Live scores, table, fixtures and your team"),
     ("goal_celebrations", "Goal celebrations", "Full-bar stadium scene when a goal goes in"),
 )
 CLOCK_CHOICES = (("", "Off"), ("%H:%M", "24-hour"), ("%I:%M %p", "12-hour"))
@@ -226,35 +225,42 @@ class ConfigFile:
         return parsed
 
 
-def clubs():
-    """(abbr, name) pairs from the standings cache, else a built-in list."""
+def teams():
+    """(abbr, name) pairs from the standings cache, else a built-in list.
+
+    NFL standings are grouped by conference (AFC/NFC) rather than one flat
+    league table, so every group's entries need merging - reading only the
+    first group silently drops half the league.
+    """
     try:
         with open(PL_STANDINGS) as handle:
             raw = json.load(handle)
-        kids = raw.get("children") or []
-        entries = ((kids[0].get("standings") or {}).get("entries") or []) if kids else []
-        rows = [((e.get("team") or {}).get("abbreviation", ""),
-                 (e.get("team") or {}).get("displayName", "")) for e in entries]
+        rows = []
+        for group in raw.get("children") or []:
+            entries = (group.get("standings") or {}).get("entries") or []
+            rows += [((e.get("team") or {}).get("abbreviation", ""),
+                      (e.get("team") or {}).get("displayName", "")) for e in entries]
         rows = [r for r in rows if r[0]]
         if rows:
             return sorted(rows, key=lambda r: r[1])
     except (OSError, ValueError, AttributeError):
         pass
-    return [("ARS", "Arsenal"), ("AVL", "Aston Villa"), ("BOU", "Bournemouth"),
-            ("BRE", "Brentford"), ("BHA", "Brighton"), ("BUR", "Burnley"),
-            ("CHE", "Chelsea"), ("CRY", "Crystal Palace"), ("EVE", "Everton"),
-            ("FUL", "Fulham"), ("LEE", "Leeds"), ("LIV", "Liverpool"),
-            ("MNC", "Manchester City"), ("MAN", "Manchester United"),
-            ("NEW", "Newcastle"), ("NFO", "Nottingham Forest"), ("SUN", "Sunderland"),
-            ("TOT", "Tottenham"), ("WHU", "West Ham"), ("WOL", "Wolves")]
-
-
-def plugin_club():
-    try:
-        with open(PL_CONFIG) as handle:
-            return str((json.load(handle) or {}).get("teamAbbr") or "").upper()
-    except (OSError, ValueError):
-        return ""
+    return [("ARI", "Arizona Cardinals"), ("ATL", "Atlanta Falcons"),
+            ("BAL", "Baltimore Ravens"), ("BUF", "Buffalo Bills"),
+            ("CAR", "Carolina Panthers"), ("CHI", "Chicago Bears"),
+            ("CIN", "Cincinnati Bengals"), ("CLE", "Cleveland Browns"),
+            ("DAL", "Dallas Cowboys"), ("DEN", "Denver Broncos"),
+            ("DET", "Detroit Lions"), ("GB", "Green Bay Packers"),
+            ("HOU", "Houston Texans"), ("IND", "Indianapolis Colts"),
+            ("JAX", "Jacksonville Jaguars"), ("KC", "Kansas City Chiefs"),
+            ("LV", "Las Vegas Raiders"), ("LAC", "Los Angeles Chargers"),
+            ("LAR", "Los Angeles Rams"), ("MIA", "Miami Dolphins"),
+            ("MIN", "Minnesota Vikings"), ("NE", "New England Patriots"),
+            ("NO", "New Orleans Saints"), ("NYG", "New York Giants"),
+            ("NYJ", "New York Jets"), ("PHI", "Philadelphia Eagles"),
+            ("PIT", "Pittsburgh Steelers"), ("SF", "San Francisco 49ers"),
+            ("SEA", "Seattle Seahawks"), ("TB", "Tampa Bay Buccaneers"),
+            ("TEN", "Tennessee Titans"), ("WSH", "Washington Commanders")]
 
 
 def daemon_active():
@@ -518,12 +524,12 @@ def main():
             s = self.settings()
             f = self.config.data.get("football", {})
             group = Adw.PreferencesGroup(
-                title="Premier League",
+                title="Football",
                 description="Built in: no companion app needed. Scores come from the "
                             "public ESPN feed and are cached on disk.")
-            choices = [("", "Follow the Football plugin (%s)" % (plugin_club() or "none picked"))]
-            choices += [(abbr, "%s (%s)" % (label, abbr)) for abbr, label in clubs()]
-            group.add(self.combo_row("Your club", "Highlighted everywhere, with its own view",
+            choices = [("", "None picked")]
+            choices += [(abbr, "%s (%s)" % (label, abbr)) for abbr, label in teams()]
+            group.add(self.combo_row("Your team", "Highlighted everywhere, with its own view",
                                      choices, str(f.get("team", "")).upper(),
                                      lambda v: self.set_football("team", v)))
             group.add(self.switch_row("Football page", "Show the live centre in the page cycle",
