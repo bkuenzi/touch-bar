@@ -539,6 +539,10 @@ def main():
                                       "Take over the whole bar for five seconds per goal",
                                       s.get("goal_celebrations", True),
                                       lambda v: self.set_setting("goal_celebrations", v)))
+            group.add(self.switch_row("Only my team",
+                                      "Celebrate scores in your team's games only, not every live game",
+                                      f.get("celebrate_my_team_only", False),
+                                      lambda v: self.set_football("celebrate_my_team_only", v)))
             group.add(self.spin_row("Live refresh", "Seconds between polls while a match is on",
                                     f.get("live_refresh", 25), 15, 120,
                                     lambda v: self.set_football("live_refresh", int(v))))

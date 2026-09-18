@@ -156,6 +156,9 @@ stable cells as one continuous scene. The label, scorer and exact score
 remain visible for a total of five seconds. To limit load on ESPN's
 unofficial API, only your followed team's live game plus up to three other
 live games are checked each cycle - not every game on a full Sunday slate.
+Set `celebrate_my_team_only = true` under `[football]` (or the "Only my
+team" switch in Settings) to celebrate your team's games alone, silencing
+everyone else's scores.
 
 Detection is built in and baselines silently on first run, so a restart never
 replays an afternoon of scoring plays. Every scoring play has a stable id and

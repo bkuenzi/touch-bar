@@ -1571,6 +1571,7 @@ class PremierLeague:
         self.team_id = ""
         self.enabled = True
         self.celebrations = True
+        self.celebrate_my_team_only = False
         self.live_refresh = 25
         self.idle_refresh = 300
         self.seen = None                     # goal keys; None until the baseline
@@ -1580,6 +1581,7 @@ class PremierLeague:
         section = section or {}
         self.enabled = bool(settings.get("football", True))
         self.celebrations = bool(settings.get("goal_celebrations", True))
+        self.celebrate_my_team_only = bool(section.get("celebrate_my_team_only", False))
         self.live_refresh = max(15, int(section.get("live_refresh", 25) or 25))
         self.idle_refresh = max(60, int(section.get("idle_refresh", 300) or 300))
         team = str(section.get("team") or "").strip().upper()
@@ -1833,7 +1835,10 @@ class PremierLeague:
                 # Only a match in progress, or one that ended in the last few
                 # hours, can produce a celebration. Older results are learned
                 # silently, so a wider fetch window never replays old goals.
-                eligible = match["state"] == "in" or match["kickoff"] >= fresh
+                # celebrate_my_team_only narrows this further to games your
+                # followed team is actually playing in.
+                eligible = (match["state"] == "in" or match["kickoff"] >= fresh) and \
+                    (not self.celebrate_my_team_only or self.involves_my_team(match))
                 for index, goal in enumerate(match["goals"]):
                     key = self.goal_key(match, goal, index)
                     current[key] = True
