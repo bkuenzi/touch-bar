@@ -1396,7 +1396,7 @@ def transcript_for(cwd):
 # cache directory (so both installed together fetch once), and follows the
 # club chosen in either ~/.config/omarchy/touchbar.toml [football] or the
 # Football plugin's premier-league.json.
-PL_LEAGUE = "eng.1"
+PL_LEAGUE = "nfl"
 PL_API = "https://site.api.espn.com/apis"
 PL_HOSTS = {"site.api.espn.com"}
 PL_CACHE_DIR = os.path.join(HOME, ".cache", "omarchy-pl")
@@ -1405,15 +1405,14 @@ PL_SEEN = os.path.join(HOME, ".local", "state", "omarchy-touchbar", "pl-seen.jso
 PL_UA = "Mozilla/5.0 (X11; Linux x86_64) omarchy-touchbar/2.1"
 PL_MAX_BYTES = 2 * 1024 * 1024
 CLUB_COLORS = {
-    "ARS": "#EF0107", "AVL": "#95BFE5", "BOU": "#DA291C", "BRE": "#E30613",
-    "BHA": "#0057B8", "BUR": "#6C1D45", "CHE": "#034694", "CRY": "#1B458F",
-    "EVE": "#003399", "FUL": "#CC0000", "IPS": "#3A64A3", "LEE": "#FFCD00",
-    "LEI": "#003090", "LIV": "#C8102E", "MNC": "#6CABDD", "MNU": "#DA291C",
-    "MAN": "#DA291C", "NEW": "#41B6E6", "NFO": "#DD0000", "SOU": "#D71920",
-    "TOT": "#132257", "WHU": "#7A263A", "WOL": "#FDB913", "SHU": "#EE2737",
-    "LUT": "#F78F1E", "COV": "#78D0F3", "HUL": "#F5A12D", "MID": "#DE1B22",
-    "SUN": "#EB172B", "WBA": "#122F67", "STO": "#E03A3E", "NOR": "#00A650",
-    "WAT": "#FBEE23",
+    "ARI": "#97233F", "ATL": "#A71930", "BAL": "#241773", "BUF": "#00338D",
+    "CAR": "#0085CA", "CHI": "#0B162A", "CIN": "#FB4F14", "CLE": "#311D00",
+    "DAL": "#003594", "DEN": "#FB4F14", "DET": "#0076B6", "GB": "#203731",
+    "HOU": "#03202F", "IND": "#002C5F", "JAX": "#101820", "KC": "#E31837",
+    "LAC": "#0080C6", "LAR": "#003594", "LV": "#A5ACAF", "MIA": "#008E97",
+    "MIN": "#4F2683", "NE": "#002244", "NO": "#D3BC8D", "NYG": "#0B2265",
+    "NYJ": "#125740", "PHI": "#004C54", "PIT": "#FFB612", "SEA": "#69BE28",
+    "SF": "#AA0000", "TB": "#D50A0A", "TEN": "#4B92DB", "WSH": "#5A1414",
 }
 FOOTBALL_VIEWS = ("live", "table", "fixtures", "club")
 
@@ -1501,12 +1500,17 @@ def pl_parse_event(event, fallback_color):
         if not detail.get("scoringPlay"):
             continue
         who = (detail.get("athletesInvolved") or [{}])[0]
+        # NFL's scoreboard tags each play with a scoringType (touchdown, field
+        # goal, safety, ...); soccer instead flags own goals/penalties on the
+        # play itself. Keep both so the celebration can label either sport.
+        scoring_type = detail.get("scoringType") or {}
         goals.append({
             "team": str((detail.get("team") or {}).get("id", "")),
             "clock": (detail.get("clock") or {}).get("displayValue", ""),
             "player": who.get("shortName") or who.get("displayName") or "",
             "own": bool(detail.get("ownGoal")),
             "pen": bool(detail.get("penaltyKick")),
+            "kind": scoring_type.get("abbreviation") or scoring_type.get("name") or "",
         })
     venue = comp.get("venue") or event.get("venue") or {}
     return {
@@ -1571,24 +1575,41 @@ class PremierLeague:
         now = time.time()
         start = time.strftime("%Y%m%d", time.gmtime(now - 30 * 86400))
         end = time.strftime("%Y%m%d", time.gmtime(now + 40 * 86400))
-        url = "%s/site/v2/sports/soccer/%s/scoreboard?dates=%s-%s&limit=400" % (
+        url = "%s/site/v2/sports/football/%s/scoreboard?dates=%s-%s&limit=400" % (
             PL_API, PL_LEAGUE, start, end)
+
+        def parse(data):
+            items = [pl_parse_event(item, self.fallback_color)
+                     for item in data.get("events") or []]
+            items = [e for e in items if e["kickoff"] and e["home"] and e["away"]]
+            items.sort(key=lambda e: e["kickoff"])
+            return items
+
         try:
             # Own cache key: the Football plugin caches the same endpoint with
             # a different date window, and reading each other's file would
             # make old results look new to whichever goal detector ran next.
             data = pl_fetch(url, "touchbar-events", 0 if force else 60, force)
-            events = [pl_parse_event(item, self.fallback_color)
-                      for item in data.get("events") or []]
-            events = [e for e in events if e["kickoff"] and e["home"] and e["away"]]
-            events.sort(key=lambda e: e["kickoff"])
+            events = parse(data)
             self.error = ""
-        except RuntimeError as exc:
-            self.error = str(exc)
-            events = None
+        except RuntimeError:
+            # ESPN's dates=START-END range query has started rejecting every
+            # range (even a same-day one) with a bare 400, for every sport
+            # tried. Fall back to its default (no dates=) window - narrower,
+            # but it keeps live/recent/upcoming working instead of a dead page.
+            try:
+                fallback_url = "%s/site/v2/sports/football/%s/scoreboard?limit=400" % (
+                    PL_API, PL_LEAGUE)
+                data = pl_fetch(fallback_url, "touchbar-events-fallback",
+                                 0 if force else 60, force)
+                events = parse(data)
+                self.error = ""
+            except RuntimeError as exc2:
+                self.error = str(exc2)
+                events = None
         table = None
         try:
-            raw = pl_fetch("%s/v2/sports/soccer/%s/standings" % (PL_API, PL_LEAGUE),
+            raw = pl_fetch("%s/v2/sports/football/%s/standings" % (PL_API, PL_LEAGUE),
                            "standings", 900, force)
             table = self.parse_table(raw)
         except RuntimeError:
@@ -1604,31 +1625,49 @@ class PremierLeague:
         return changed
 
     def parse_table(self, raw):
-        kids = raw.get("children") or []
-        entries = ((kids[0].get("standings") or {}).get("entries") or []) if kids else []
+        # The NFL groups standings by conference (AFC/NFC) rather than one
+        # flat league table, and its per-entry stats have no `rank` or
+        # `points` (that's a soccer-only 3-for-a-win concept) - the
+        # `playoffSeed` it does carry only runs 1-7 and repeats in each
+        # conference, so it can't order a combined table. Merge every
+        # conference's entries and rank the combined list by win percentage.
         rows = []
-        for entry in entries:
-            stats = {s.get("name"): s for s in entry.get("stats") or []}
+        for group in raw.get("children") or []:
+            entries = (group.get("standings") or {}).get("entries") or []
+            for entry in entries:
+                stats = {s.get("name"): s for s in entry.get("stats") or []}
 
-            def val(name, default=0):
-                item = stats.get(name) or {}
-                try:
-                    return int(float(item.get("value", item.get("displayValue", default))))
-                except (TypeError, ValueError):
-                    return default
+                def val(name, default=0):
+                    item = stats.get(name) or {}
+                    try:
+                        return int(float(item.get("value", item.get("displayValue", default))))
+                    except (TypeError, ValueError):
+                        return default
 
-            team = entry.get("team") or {}
-            rows.append({
-                "id": str(team.get("id", "")),
-                "name": team.get("shortDisplayName") or team.get("displayName", "?"),
-                "abbr": team.get("abbreviation", "???"),
-                "color": pl_team_color(team, self.fallback_color),
-                "rank": val("rank", 99), "played": val("gamesPlayed"),
-                "won": val("wins"), "drawn": val("ties"), "lost": val("losses"),
-                "gf": val("pointsFor"), "ga": val("pointsAgainst"),
-                "gd": val("pointDifferential"), "pts": val("points"),
-            })
-        rows.sort(key=lambda r: r["rank"])
+                def fval(name, default=0.0):
+                    item = stats.get(name) or {}
+                    try:
+                        return float(item.get("value", default))
+                    except (TypeError, ValueError):
+                        return default
+
+                team = entry.get("team") or {}
+                won, drawn, lost = val("wins"), val("ties"), val("losses")
+                rows.append({
+                    "id": str(team.get("id", "")),
+                    "name": team.get("shortDisplayName") or team.get("displayName", "?"),
+                    "abbr": team.get("abbreviation", "???"),
+                    "conference": group.get("abbreviation") or "",
+                    "color": pl_team_color(team, self.fallback_color),
+                    "played": won + drawn + lost,
+                    "won": won, "drawn": drawn, "lost": lost,
+                    "gf": val("pointsFor"), "ga": val("pointsAgainst"),
+                    "gd": val("pointDifferential"),
+                    "pts": int(round(fval("winPercent") * 100)),
+                })
+        rows.sort(key=lambda r: (-r["pts"], -r["gd"]))
+        for index, row in enumerate(rows, start=1):
+            row["rank"] = index
         return rows
 
     def signature(self):
@@ -1701,20 +1740,28 @@ class PremierLeague:
         return "%s:%s:%s:%s:%s" % (match["id"], goal.get("team", ""),
                                    goal.get("clock", ""), goal.get("player", ""), index)
 
+    # Scoring-type abbreviation/name from ESPN -> (celebration label, suffix).
+    SCORE_LABELS = {
+        "TD": "TD", "FG": "FG", "SF": "SAFETY", "2PT": "2-PT",
+        "TOUCHDOWN": "TD", "FIELDGOAL": "FG", "SAFETY": "SAFETY",
+        "TWOPOINTCONVERSION": "2-PT",
+    }
+
     def goal_payload(self, match, goal, index):
         home, away = match["home"], match["away"]
         scorer_team = home if goal.get("team") == home["id"] else away
         hs = sum(1 for g in match["goals"][:index + 1] if g.get("team") == home["id"])
         as_ = sum(1 for g in match["goals"][:index + 1] if g.get("team") == away["id"])
         suffix = " (P)" if goal.get("pen") else (" (OG)" if goal.get("own") else "")
+        label = self.SCORE_LABELS.get((goal.get("kind") or "").upper(), "SCORE")
         return {
             "id": self.goal_key(match, goal, index), "kind": "goal",
-            "event": match["id"], "competition": "PL",
+            "event": match["id"], "competition": "NFL", "label": label,
             "home": home["full"], "homeAbbr": home["abbr"], "homeScore": hs,
             "away": away["full"], "awayAbbr": away["abbr"], "awayScore": as_,
             "team": scorer_team["full"], "teamAbbr": scorer_team["abbr"],
             "teamColor": scorer_team.get("color") or self.fallback_color,
-            "scorer": (goal.get("player") or "Goal") + suffix,
+            "scorer": (goal.get("player") or label.title()) + suffix,
             "clock": goal.get("clock") or match.get("clock") or "LIVE",
         }
 
@@ -1939,7 +1986,8 @@ def build_goal_svg(spec, width, font):
     fg, bg = spec.get("fg", "#ffffff"), spec.get("fill", "#111111")
     accent = spec.get("bar", "#75b798")
     red = spec.get("goal_red", "#f06c75")
-    scorer = html.escape(str(g.get("scorer") or "GOAL"))
+    label = html.escape(str(g.get("label") or "SCORE"))
+    scorer = html.escape(str(g.get("scorer") or label))
     score = html.escape("%s  %s - %s  %s" % (
         g.get("homeAbbr", "HOME"), g.get("homeScore", 0),
         g.get("awayScore", 0), g.get("awayAbbr", "AWAY")))
@@ -1950,8 +1998,8 @@ def build_goal_svg(spec, width, font):
       <rect width="2170" height="60" fill="url(#sky)"/><ellipse cx="1085" cy="17" rx="900" ry="30" fill="url(#light)" opacity=".28"/><path d="M0 46 Q540 37 1085 45 T2170 43 V60 H0Z" fill="%s" opacity=".35"/><path d="M0 51 H2170" stroke="%s" stroke-width="1" opacity=".25"/>
       <g opacity=".72" stroke="%s" fill="none"><path d="M1950 15h145v38h-145z" stroke-width="3"/><path d="M1950 15l28 9h145l-28-9M2095 15l28 9v29"/><path d="M1978 24v29m24-29v29m24-29v29m24-29v29m24-29v29M1950 34h173m-173 10h173" opacity=".42"/></g>
       <circle cx="%.1f" cy="%.1f" r="7" fill="#faf7ef" stroke="#242424" stroke-width="2" filter="url(#glow)"/><path d="M%.1f %.1f l4 2 -2 4 -5-1 -1-4z" fill="#242424"/><circle cx="1995" cy="35" r="%.1f" fill="none" stroke="%s" stroke-width="3" opacity="%.2f"/>
-      <g font-family="%s" text-anchor="middle"><text x="1060" y="19" font-size="13" font-weight="700" fill="%s" letter-spacing="3">GOAL · %s</text><text x="1060" y="43" font-size="25" font-weight="800" fill="%s">%s</text><text x="1060" y="57" font-size="12" font-weight="700" fill="%s">%s · %s</text></g>
-    </svg>''' % (int(width), left, width, bg, accent, bg, accent, fg, fg, ball_x, ball_y, ball_x, ball_y, 12 + 38 * pulse, red, .75 * pulse, font, red, clock, fg, score, accent, scorer, team)
+      <g font-family="%s" text-anchor="middle"><text x="1060" y="19" font-size="13" font-weight="700" fill="%s" letter-spacing="3">%s · %s</text><text x="1060" y="43" font-size="25" font-weight="800" fill="%s">%s</text><text x="1060" y="57" font-size="12" font-weight="700" fill="%s">%s · %s</text></g>
+    </svg>''' % (int(width), left, width, bg, accent, bg, accent, fg, fg, ball_x, ball_y, ball_x, ball_y, 12 + 38 * pulse, red, .75 * pulse, font, red, label, clock, fg, score, accent, scorer, team)
 
 
 def mix(hex_color, other, amount):
@@ -3006,7 +3054,7 @@ class TouchBar:
 
     def mode_group(self):
         icons = {"auto": "\U000f003b", "apps": "\uf17c",
-                 "system": "\U000f035b", "football": "\uf1e3",
+                 "system": "\U000f035b", "football": "\uf44e",
                  "settings": "\uf1de", "fn": "\uf11c"}
         colors = {"auto": "accent", "apps": "green", "system": "cyan",
                   "football": "green", "settings": "yellow", "fn": "muted"}
@@ -3071,7 +3119,7 @@ class TouchBar:
                 else ("raised", "fg", "red")
         elif match["state"] == "post":
             label = "%s %d-%d %s" % (home["abbr"], hs, as_, away["abbr"])
-            caption = "full time"
+            caption = "final"
             fill, fg, sub_fg = "sunken", "fg", "muted"
         else:
             label = "%s v %s" % (home["abbr"], away["abbr"])
@@ -3085,12 +3133,12 @@ class TouchBar:
 
     def table_tile(self, row):
         rank = row["rank"]
-        zone = "green" if rank <= 4 else "cyan" if rank == 5 \
-            else "red" if rank >= 18 else "muted"
+        # 32 teams, 14 make the playoffs across both conferences (7 each).
+        zone = "green" if rank <= 14 else "red" if rank >= 29 else "muted"
         mine = (row["abbr"] or "").upper() == self.football.team_abbr
         return spec(row["abbr"], None, fill="accent" if mine else "sunken",
                     fg="on_accent" if mine else "fg", size=20, gloss=mine,
-                    sub="%d pts · %+d" % (row["pts"], row["gd"]), sub_size=11,
+                    sub="%d%% · %+d" % (row["pts"], row["gd"]), sub_size=11,
                     sub_fg="on_accent" if mine else zone, badge=rank,
                     edges=(row["color"], None), daemon="football:view")
 
@@ -3109,7 +3157,7 @@ class TouchBar:
         """Live scores, the table, fixtures and your club, one view at a time."""
         pl = self.football
         view = self.football_view
-        icons = {"live": "", "table": "", "fixtures": "",
+        icons = {"live": "", "table": "", "fixtures": "",
                  "club": ""}
         titles = {"live": "live", "table": "table", "fixtures": "fixtures",
                   "club": pl.team_abbr.lower() or "club"}
@@ -3157,13 +3205,13 @@ class TouchBar:
                 rank = club_row["rank"]
                 rows = [
                     spec("#%d" % rank, None, fill="sunken", fg="fg", size=22,
-                         gloss=False, ring=max(0.0, 1 - (rank - 1) / 19.0),
-                         bar="green" if rank <= 4 else "red" if rank >= 18 else "accent",
+                         gloss=False, ring=max(0.0, 1 - (rank - 1) / 31.0),
+                         bar="green" if rank <= 14 else "red" if rank >= 29 else "accent",
                          ring_glyph=club_row["abbr"][:3], ring_glyph_fg="fg",
-                         sub="of 20", sub_size=11, sub_fg="muted",
+                         sub="of 32", sub_size=11, sub_fg="muted",
                          daemon="football:view"),
-                    spec(str(club_row["pts"]), None, fill="sunken", fg="accent",
-                         size=24, gloss=False, sub="pts · %d played" % club_row["played"],
+                    spec("%d%%" % club_row["pts"], None, fill="sunken", fg="accent",
+                         size=24, gloss=False, sub="win · %d played" % club_row["played"],
                          sub_size=11, sub_fg="muted", daemon="football:view"),
                     spec("%d-%d-%d" % (club_row["won"], club_row["drawn"],
                                        club_row["lost"]), None, fill="sunken",
@@ -5044,8 +5092,9 @@ def watch_football(bar):
                         try:
                             subprocess.Popen(
                                 [OMARCHY_NOTIFY_BIN,
-                                 "GOAL · %s %s-%s %s" % (payload["homeAbbr"], payload["homeScore"],
-                                                         payload["awayScore"], payload["awayAbbr"]),
+                                 "%s · %s %s-%s %s" % (payload.get("label", "SCORE"),
+                                                       payload["homeAbbr"], payload["homeScore"],
+                                                       payload["awayScore"], payload["awayAbbr"]),
                                  "%s · %s" % (payload["scorer"], payload["clock"])],
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                         except OSError:
