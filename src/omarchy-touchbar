@@ -17,7 +17,7 @@ come from the current Omarchy theme.
   omarchy-touchbar focus N    focus the window in the Nth window slot
   omarchy-touchbar tab N      focus the Nth live browser tab
   omarchy-touchbar preview [page] [out.png]   write a PNG mock-up of a page
-  omarchy-touchbar football [live|table|fixtures|club|refresh]
+  omarchy-touchbar football [live|table|fixtures|team|refresh]
   omarchy-touchbar settings   open the desktop settings window
   omarchy-touchbar status     show what the bar is currently showing
 """
@@ -1394,7 +1394,7 @@ def transcript_for(cwd):
 # A built-in live centre so the bar needs no companion app. It talks to the
 # same public ESPN endpoints the Football plugin uses, shares its on-disk
 # cache directory (so both installed together fetch once), and follows the
-# club chosen in either ~/.config/omarchy/touchbar.toml [football] or the
+# team chosen in either ~/.config/omarchy/touchbar.toml [football] or the
 # Football plugin's premier-league.json.
 PL_LEAGUE = "nfl"
 PL_API = "https://site.api.espn.com/apis"
@@ -1404,7 +1404,7 @@ PL_CONFIG = os.path.join(HOME, ".config", "omarchy", "premier-league.json")
 PL_SEEN = os.path.join(HOME, ".local", "state", "omarchy-touchbar", "pl-seen.json")
 PL_UA = "Mozilla/5.0 (X11; Linux x86_64) omarchy-touchbar/2.1"
 PL_MAX_BYTES = 2 * 1024 * 1024
-CLUB_COLORS = {
+TEAM_COLORS = {
     "ARI": "#97233F", "ATL": "#A71930", "BAL": "#241773", "BUF": "#00338D",
     "CAR": "#0085CA", "CHI": "#0B162A", "CIN": "#FB4F14", "CLE": "#311D00",
     "DAL": "#003594", "DEN": "#FB4F14", "DET": "#0076B6", "GB": "#203731",
@@ -1414,7 +1414,7 @@ CLUB_COLORS = {
     "NYJ": "#125740", "PHI": "#004C54", "PIT": "#FFB612", "SEA": "#69BE28",
     "SF": "#AA0000", "TB": "#D50A0A", "TEN": "#4B92DB", "WSH": "#5A1414",
 }
-FOOTBALL_VIEWS = ("live", "table", "fixtures", "club")
+FOOTBALL_VIEWS = ("live", "table", "fixtures", "team")
 
 
 def pl_fetch(url, key, ttl, force=False):
@@ -1466,7 +1466,7 @@ def pl_parse_utc(stamp):
 
 
 def pl_team_color(team, fallback):
-    known = CLUB_COLORS.get((team.get("abbreviation") or "").upper())
+    known = TEAM_COLORS.get((team.get("abbreviation") or "").upper())
     if known:
         return known
     color = (team.get("color") or "").strip()
@@ -1559,7 +1559,7 @@ def pl_score(match):
 
 
 class PremierLeague:
-    """Live scores, the table and your club, refreshed off the render path."""
+    """Live scores, the table and your team, refreshed off the render path."""
 
     def __init__(self):
         self.lock = threading.Lock()
@@ -1656,18 +1656,18 @@ class PremierLeague:
         summary endpoint, since NFL's batch scoreboard never carries them
         (see pl_parse_scoring_plays). Unofficial API, no published rate
         limit - earlier probing got Akamai to 403 after a burst of
-        requests, so this is capped: the followed club's live match (if
+        requests, so this is capped: the followed team's live match (if
         any) always gets fetched, plus the earliest-kickoff other live
         games up to a total of 4, rather than every game on a full Sunday
         slate every ~25s."""
         live = [e for e in events if e["state"] == "in"]
         if not live:
             return
-        club_ids = {e["id"] for e in live if self.involves_club(e)}
-        club = [e for e in live if e["id"] in club_ids]
-        others = sorted((e for e in live if e["id"] not in club_ids),
+        my_team_ids = {e["id"] for e in live if self.involves_my_team(e)}
+        mine = [e for e in live if e["id"] in my_team_ids]
+        others = sorted((e for e in live if e["id"] not in my_team_ids),
                         key=lambda e: e["kickoff"])
-        for match in club + others[:max(0, 4 - len(club))]:
+        for match in mine + others[:max(0, 4 - len(mine))]:
             try:
                 raw = pl_fetch(
                     "%s/site/v2/sports/football/%s/summary?event=%s" % (
@@ -1731,11 +1731,11 @@ class PremierLeague:
                 tuple((r["abbr"], r["pts"], r["gd"]) for r in self.table))
 
     # -- queries ----------------------------------------------------------
-    def is_club(self, side):
+    def is_my_team(self, side):
         return bool(self.team_abbr) and (side.get("abbr") or "").upper() == self.team_abbr
 
-    def involves_club(self, match):
-        return self.is_club(match["home"]) or self.is_club(match["away"])
+    def involves_my_team(self, match):
+        return self.is_my_team(match["home"]) or self.is_my_team(match["away"])
 
     def live(self):
         return [e for e in self.events if e["state"] == "in"]
@@ -1757,35 +1757,35 @@ class PremierLeague:
         done = [e for e in self.events if e["state"] == "post"]
         return list(reversed(done[-limit:]))
 
-    def club_row(self):
+    def team_row(self):
         for row in self.table:
             if (row["abbr"] or "").upper() == self.team_abbr:
                 return row
         return None
 
-    def club_matches(self):
-        return [e for e in self.events if self.involves_club(e)]
+    def team_matches(self):
+        return [e for e in self.events if self.involves_my_team(e)]
 
-    def club_next(self):
-        for match in self.club_matches():
+    def team_next(self):
+        for match in self.team_matches():
             if match["state"] == "in":
                 return match
         now = time.time() - 300
-        for match in self.club_matches():
+        for match in self.team_matches():
             if match["state"] == "pre" and match["kickoff"] >= now:
                 return match
         return None
 
-    def club_last(self):
-        done = [m for m in self.club_matches() if m["state"] == "post"]
+    def team_last(self):
+        done = [m for m in self.team_matches() if m["state"] == "post"]
         return done[-1] if done else None
 
-    def club_form(self):
+    def team_form(self):
         """Last five results as W/D/L, oldest first, from finished matches."""
         letters = []
-        for match in [m for m in self.club_matches() if m["state"] == "post"][-5:]:
+        for match in [m for m in self.team_matches() if m["state"] == "post"][-5:]:
             hs, as_ = pl_score(match)
-            mine, theirs = (hs, as_) if self.is_club(match["home"]) else (as_, hs)
+            mine, theirs = (hs, as_) if self.is_my_team(match["home"]) else (as_, hs)
             letters.append("W" if mine > theirs else "L" if mine < theirs else "D")
         return "".join(letters)
 
@@ -2345,7 +2345,7 @@ def build_svg(spec, width, radius, font, scale=1.0):
 
     edges = spec.get("edges")
     if edges:
-        # Club colours as slim bars on the pill's flanks (home left, away right).
+        # Team colours as slim bars on the pill's flanks (home left, away right).
         left_color, right_color = edges
         if left_color:
             body += ('<rect x="7" y="13" width="5" height="34" rx="2.5" fill="%s"/>'
@@ -3162,10 +3162,10 @@ class TouchBar:
         return tuple(p for p in PAGES if p != "football")
 
     def match_tile(self, match, stretch=2, action="football:view"):
-        """One fixture or live match as a tile with both clubs' colours."""
+        """One fixture or live match as a tile with both teams' colours."""
         home, away = match["home"], match["away"]
         hs, as_ = pl_score(match)
-        mine = self.football.involves_club(match)
+        mine = self.football.involves_my_team(match)
         if match["state"] == "in":
             label = "%s %d-%d %s" % (home["abbr"], hs, as_, away["abbr"])
             caption = "%s · live" % (match.get("clock") or "").strip("'") \
@@ -3209,13 +3209,13 @@ class TouchBar:
         return items[offset:offset + capacity], offset
 
     def page_football(self, embedded=False):
-        """Live scores, the table, fixtures and your club, one view at a time."""
+        """Live scores, the table, fixtures and your team, one view at a time."""
         pl = self.football
         view = self.football_view
         icons = {"live": "", "table": "", "fixtures": "",
-                 "club": ""}
+                 "team": ""}
         titles = {"live": "live", "table": "table", "fixtures": "fixtures",
-                  "club": pl.team_abbr.lower() or "club"}
+                  "team": pl.team_abbr.lower() or "team"}
         selector = spec(icons[view], None, fill="accent", fg="on_accent", size=24,
                         sub=titles[view], sub_size=10, sub_fg="on_accent", glow=True,
                         dots=(len(FOOTBALL_VIEWS), FOOTBALL_VIEWS.index(view)),
@@ -3230,8 +3230,8 @@ class TouchBar:
             upcoming = pl.upcoming(40)
             recent = pl.recent(6)
             table = list(pl.table)
-            club_next, club_last = pl.club_next(), pl.club_last()
-            club_row, form = pl.club_row(), pl.club_form()
+            team_next, team_last = pl.team_next(), pl.team_last()
+            team_row, form = pl.team_row(), pl.team_form()
         rows = []
         if not pl.events and not table:
             rows = [spec("", None, fill="sunken", fg="muted", size=24,
@@ -3252,39 +3252,39 @@ class TouchBar:
             shown, _ = self.football_pages(upcoming, budget // 2)
             rows = [self.match_tile(m) for m in shown]
         else:
-            if club_row is None:
+            if team_row is None:
                 rows = [spec("", None, fill="sunken", fg="muted", size=24,
-                             sub="pick a club in settings", sub_size=11,
+                             sub="pick a team in settings", sub_size=11,
                              stretch=budget)]
             else:
-                rank = club_row["rank"]
+                rank = team_row["rank"]
                 rows = [
                     spec("#%d" % rank, None, fill="sunken", fg="fg", size=22,
                          gloss=False, ring=max(0.0, 1 - (rank - 1) / 31.0),
                          bar="green" if rank <= 14 else "red" if rank >= 29 else "accent",
-                         ring_glyph=club_row["abbr"][:3], ring_glyph_fg="fg",
+                         ring_glyph=team_row["abbr"][:3], ring_glyph_fg="fg",
                          sub="of 32", sub_size=11, sub_fg="muted",
                          daemon="football:view"),
-                    spec("%d%%" % club_row["pts"], None, fill="sunken", fg="accent",
-                         size=24, gloss=False, sub="win · %d played" % club_row["played"],
+                    spec("%d%%" % team_row["pts"], None, fill="sunken", fg="accent",
+                         size=24, gloss=False, sub="win · %d played" % team_row["played"],
                          sub_size=11, sub_fg="muted", daemon="football:view"),
-                    spec("%d-%d-%d" % (club_row["won"], club_row["drawn"],
-                                       club_row["lost"]), None, fill="sunken",
+                    spec("%d-%d-%d" % (team_row["won"], team_row["drawn"],
+                                       team_row["lost"]), None, fill="sunken",
                          fg="fg", size=20, gloss=False, sub="w · d · l", sub_size=11,
                          sub_fg="muted", daemon="football:view"),
-                    spec("%+d" % club_row["gd"], None, fill="sunken",
-                         fg="green" if club_row["gd"] >= 0 else "red", size=22,
-                         gloss=False, sub="%d for · %d against" % (club_row["gf"],
-                                                                   club_row["ga"]),
+                    spec("%+d" % team_row["gd"], None, fill="sunken",
+                         fg="green" if team_row["gd"] >= 0 else "red", size=22,
+                         gloss=False, sub="%d for · %d against" % (team_row["gf"],
+                                                                   team_row["ga"]),
                          sub_size=11, sub_fg="muted", daemon="football:view"),
                     spec("", None, fill="sunken", fg="fg", gloss=False, form=form,
                          sub="form" if form else "no results yet", sub_size=11,
                          sub_fg="muted", daemon="football:view"),
                 ]
-                if club_next:
-                    rows.append(self.match_tile(club_next))
-                if club_last:
-                    rows.append(self.match_tile(club_last))
+                if team_next:
+                    rows.append(self.match_tile(team_next))
+                if team_last:
+                    rows.append(self.match_tile(team_last))
                 self.football_capacity = 0
         return self.compose([[selector], rows], trailing)
 
