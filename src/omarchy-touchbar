@@ -1524,6 +1524,31 @@ def pl_parse_event(event, fallback_color):
     }
 
 
+def pl_parse_scoring_plays(raw):
+    """NFL's scoreboard payload never populates `details` with scoring
+    plays (unlike soccer's), so the celebration engine would otherwise
+    never fire for football. This maps ESPN's per-game summary endpoint's
+    `scoringPlays` onto the same shape pl_parse_event's `goals` uses.
+    `scoringType` (not the play-specific `type`) carries the normalized
+    TD/FG code even for oddities like a fumble-return score, whose `type`
+    reads "Sack Opp Fumble Recovery" instead of "Touchdown"."""
+    goals = []
+    for play in raw.get("scoringPlays") or []:
+        team = play.get("team") or {}
+        kind = ((play.get("scoringType") or {}).get("abbreviation")
+                or (play.get("type") or {}).get("abbreviation") or "")
+        text = play.get("text") or ""
+        scorer = re.match(r"^(.*?)\s+\d", text)
+        goals.append({
+            "team": str(team.get("id", "")),
+            "clock": (play.get("clock") or {}).get("displayValue", ""),
+            "player": scorer.group(1).strip() if scorer else text.strip(),
+            "own": False, "pen": False,
+            "kind": kind,
+        })
+    return goals
+
+
 def pl_score(match):
     def number(value):
         try:
@@ -1607,6 +1632,8 @@ class PremierLeague:
             except RuntimeError as exc2:
                 self.error = str(exc2)
                 events = None
+        if events is not None:
+            self.attach_live_goals(events)
         table = None
         try:
             raw = pl_fetch("%s/v2/sports/football/%s/standings" % (PL_API, PL_LEAGUE),
@@ -1623,6 +1650,34 @@ class PremierLeague:
             self.fetched = time.monotonic()
             changed = self.signature() != before
         return changed
+
+    def attach_live_goals(self, events):
+        """Fill in real scoring plays for live games via the per-game
+        summary endpoint, since NFL's batch scoreboard never carries them
+        (see pl_parse_scoring_plays). Unofficial API, no published rate
+        limit - earlier probing got Akamai to 403 after a burst of
+        requests, so this is capped: the followed club's live match (if
+        any) always gets fetched, plus the earliest-kickoff other live
+        games up to a total of 4, rather than every game on a full Sunday
+        slate every ~25s."""
+        live = [e for e in events if e["state"] == "in"]
+        if not live:
+            return
+        club_ids = {e["id"] for e in live if self.involves_club(e)}
+        club = [e for e in live if e["id"] in club_ids]
+        others = sorted((e for e in live if e["id"] not in club_ids),
+                        key=lambda e: e["kickoff"])
+        for match in club + others[:max(0, 4 - len(club))]:
+            try:
+                raw = pl_fetch(
+                    "%s/site/v2/sports/football/%s/summary?event=%s" % (
+                        PL_API, PL_LEAGUE, match["id"]),
+                    "summary-%s" % match["id"], self.live_refresh, False)
+                goals = pl_parse_scoring_plays(raw)
+                if goals:
+                    match["goals"] = goals
+            except RuntimeError:
+                pass  # keep whatever pl_parse_event already found (usually none)
 
     def parse_table(self, raw):
         # The NFL groups standings by conference (AFC/NFC) rather than one
