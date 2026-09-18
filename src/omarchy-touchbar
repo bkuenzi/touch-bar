@@ -4051,7 +4051,8 @@ class TouchBar:
             if value == "next":
                 base = self.page if self.page in self.pages() else "auto"
                 self.page = self.pages()[(self.pages().index(base) + 1) % len(self.pages())]
-            elif value in ("workspaces", "claude", "chatgpt", "models", "efforts"):
+            elif value in ("workspaces", "claude", "chatgpt", "models", "efforts",
+                           "football"):
                 self.page = "auto" if self.page == value else value
             elif value in self.pages():
                 self.page = value
