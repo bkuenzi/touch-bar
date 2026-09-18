@@ -4336,9 +4336,10 @@ def preview(bar, out="/tmp/omarchy-touchbar-preview.png", what="auto"):
         bar.football.refresh()
         specs = bar.specs()
     elif what == "goal":
-        specs = bar.goal_specs({"scorer": "M. Salah", "team": "Liverpool",
-                                "homeAbbr": "LIV", "homeScore": 2, "awayScore": 1,
-                                "awayAbbr": "ARS", "clock": "78'"}, 0.68)
+        specs = bar.goal_specs({"scorer": "Dak Prescott", "team": "Dallas Cowboys",
+                                "teamColor": "#003594", "label": "TD",
+                                "homeAbbr": "DAL", "homeScore": 21, "awayScore": 17,
+                                "awayAbbr": "WSH", "clock": "4:12 - 4th"}, 0.68)
     else:
         bar.page = what
         specs = bar.specs()
